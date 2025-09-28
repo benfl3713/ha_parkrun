@@ -12,7 +12,6 @@ from bs4 import BeautifulSoup
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import TIME_MINUTES
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -81,7 +80,7 @@ class ParkrunDataUpdateCoordinator(DataUpdateCoordinator):
         url = PARKRUN_PROFILE_URL.format(user_id=self.user_id)
         
         try:
-            async with self.session.get(url, timeout=30) as response:
+            async with self.session.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36"}) as response:
                 if response.status != 200:
                     raise UpdateFailed(f"HTTP {response.status} error fetching data")
                 
