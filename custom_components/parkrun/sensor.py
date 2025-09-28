@@ -300,7 +300,7 @@ class ParkrunSensor(CoordinatorEntity, SensorEntity):
         self._name = name
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{user_id}"
-        self._attr_state_class = SensorStateClass.TOTAL
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_native_unit_of_measurement = "runs"
 
     @property
