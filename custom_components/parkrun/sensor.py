@@ -51,6 +51,9 @@ async def async_setup_entry(
     coordinator = ParkrunDataUpdateCoordinator(hass, user_id)
     await coordinator.async_config_entry_first_refresh()
     
+    # Store coordinator for service access
+    hass.data.setdefault(DOMAIN, {}).setdefault("coordinators", []).append(coordinator)
+    
     async_add_entities([ParkrunSensor(coordinator, user_id, name)], True)
 
 
@@ -67,20 +70,86 @@ class ParkrunDataUpdateCoordinator(DataUpdateCoordinator):
         )
         self.user_id = user_id
         self.session = async_get_clientsession(hass)
+        self._last_update_attempt = None
+        self._next_saturday = self._get_next_saturday()
+        self._force_update = False
+
+    def _get_next_saturday(self) -> datetime:
+        """Get the next Saturday date."""
+        now = datetime.now()
+        days_until_saturday = (5 - now.weekday()) % 7
+        if days_until_saturday == 0 and now.weekday() == 5:
+            # It's already Saturday, get next Saturday
+            days_until_saturday = 7
+        next_saturday = now + timedelta(days=days_until_saturday)
+        return next_saturday.replace(hour=9, minute=0, second=0, microsecond=0)
+
+    async def force_update(self) -> None:
+        """Force an immediate update regardless of day."""
+        _LOGGER.info("Forcing Parkrun data update")
+        self._force_update = True
+        await self.async_request_refresh()
+        self._force_update = False
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Update data via library."""
+        now = datetime.now()
+        self._last_update_attempt = now
+        
+        # Always update on first run, Saturdays, or when forced
+        is_saturday = now.weekday() == 5
+        is_first_run = self.data is None or not self.data.get(ATTR_TOTAL_RUNS, 0)
+        should_update = is_saturday or is_first_run or self._force_update
+        
+        if not should_update:
+            _LOGGER.debug("Skipping update - not Saturday, not first run, and not forced (current day: %s)", now.strftime("%A"))
+            # Return existing data with updated metadata
+            data = dict(self.data) if self.data else self._get_empty_data()
+            data["last_update_attempt"] = self._last_update_attempt.isoformat()
+            data["next_update_saturday"] = self._next_saturday.strftime("%Y-%m-%d")
+            return data
+        
+        if is_first_run:
+            _LOGGER.debug("Performing initial data fetch for new installation")
+        elif self._force_update:
+            _LOGGER.debug("Performing forced data update")
+        else:
+            _LOGGER.debug("Updating Parkrun data on Saturday")
+            
+        # Update next Saturday for next week (only if it's currently Saturday)
+        if is_saturday:
+            self._next_saturday = self._get_next_saturday()
+        
         try:
-            return await self._fetch_parkrun_data()
+            data = await self._fetch_parkrun_data()
+            # Add metadata
+            data["last_update_attempt"] = self._last_update_attempt.isoformat()
+            data["next_update_saturday"] = self._next_saturday.strftime("%Y-%m-%d")
+            return data
         except Exception as exception:
             raise UpdateFailed(f"Error communicating with API: {exception}") from exception
+
+    def _get_empty_data(self) -> dict[str, Any]:
+        """Return empty data structure."""
+        return {
+            ATTR_USER_ID: self.user_id,
+            ATTR_TOTAL_RUNS: 0,
+            ATTR_RECENT_RUNS: [],
+            ATTR_LAST_RUN_DATE: None,
+            ATTR_LAST_RUN_TIME: None,
+            ATTR_LAST_RUN_POSITION: None,
+            ATTR_LAST_RUN_EVENT: None,
+            ATTR_PERSONAL_BEST: None,
+            ATTR_AVERAGE_TIME: None,
+        }
 
     async def _fetch_parkrun_data(self) -> dict[str, Any]:
         """Fetch data from Parkrun website."""
         url = PARKRUN_PROFILE_URL.format(user_id=self.user_id)
         
         try:
-            async with self.session.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36"}) as response:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with self.session.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36"}) as response:
                 if response.status != 200:
                     raise UpdateFailed(f"HTTP {response.status} error fetching data")
                 
@@ -109,12 +178,14 @@ class ParkrunDataUpdateCoordinator(DataUpdateCoordinator):
         
         try:
             # Extract total runs from h3 tag like "6 parkruns total"
-            h3_total = soup.find('h3', string=lambda text: text and 'parkruns total' in text)
-            if h3_total:
-                text = h3_total.get_text()
-                runs_match = re.search(r'(\d+)\s+parkruns total', text)
-                if runs_match:
-                    data[ATTR_TOTAL_RUNS] = int(runs_match.group(1))
+            h3_elements = soup.find_all('h3')
+            for h3 in h3_elements:
+                text = h3.get_text()
+                if 'parkruns total' in text:
+                    runs_match = re.search(r'(\d+)\s+parkruns total', text)
+                    if runs_match:
+                        data[ATTR_TOTAL_RUNS] = int(runs_match.group(1))
+                    break
             
             # Find all tables
             tables = soup.find_all('table')

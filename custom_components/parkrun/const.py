@@ -4,7 +4,7 @@ DOMAIN = "parkrun"
 
 # Default values
 DEFAULT_NAME = "Parkrun"
-DEFAULT_SCAN_INTERVAL = 60  # minutes
+DEFAULT_SCAN_INTERVAL = 60
 
 # URLs
 PARKRUN_BASE_URL = "https://www.parkrun.org.uk"
