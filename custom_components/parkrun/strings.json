@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Parkrun",
+        "description": "Enter your Parkrun user ID to track your running statistics.",
+        "data": {
+          "user_id": "User ID",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "invalid_user_id": "Invalid user ID. Please enter a valid numeric Parkrun user ID.",
+      "unknown": "Unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "domain": "parkrun",
+  "name": "Parkrun",
+  "codeowners": ["@benfl3713"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/benfl3713/ha_parkrun",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/benfl3713/ha_parkrun/issues",
+  "requirements": ["aiohttp", "beautifulsoup4"],
+  "version": "1.0.0"
+}
