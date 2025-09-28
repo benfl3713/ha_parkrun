@@ -10,7 +10,7 @@ from typing import Any
 import aiohttp
 from bs4 import BeautifulSoup
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import SensorEntity, SensorStateClass, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -44,7 +44,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Parkrun sensor."""
+    """Set up the Parkrun sensors."""
     user_id = config_entry.data["user_id"]
     name = config_entry.data.get("name", "Parkrun")
     
@@ -54,7 +54,18 @@ async def async_setup_entry(
     # Store coordinator for service access
     hass.data.setdefault(DOMAIN, {}).setdefault("coordinators", []).append(coordinator)
     
-    async_add_entities([ParkrunSensor(coordinator, user_id, name)], True)
+    # Create multiple sensor entities for better historical tracking
+    sensors = [
+        ParkrunTotalRunsSensor(coordinator, user_id, name),
+        ParkrunLastRunTimeSensor(coordinator, user_id, name),
+        ParkrunPersonalBestSensor(coordinator, user_id, name),
+        ParkrunLastRunPositionSensor(coordinator, user_id, name),
+        ParkrunAverageTimeSensor(coordinator, user_id, name),
+        ParkrunLastRunEventSensor(coordinator, user_id, name),
+        ParkrunLastRunDateSensor(coordinator, user_id, name),
+    ]
+    
+    async_add_entities(sensors, True)
 
 
 class ParkrunDataUpdateCoordinator(DataUpdateCoordinator):
@@ -285,39 +296,142 @@ class ParkrunDataUpdateCoordinator(DataUpdateCoordinator):
         return f"{minutes}:{seconds:02d}"
 
 
-class ParkrunSensor(CoordinatorEntity, SensorEntity):
-    """Implementation of a Parkrun sensor."""
+class BaseParkrunSensor(CoordinatorEntity, SensorEntity):
+    """Base class for Parkrun sensors."""
 
     def __init__(
         self,
         coordinator: ParkrunDataUpdateCoordinator,
         user_id: str,
         name: str,
+        sensor_type: str,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._user_id = user_id
         self._name = name
-        self._attr_name = name
-        self._attr_unique_id = f"{DOMAIN}_{user_id}"
+        self._sensor_type = sensor_type
+        self._attr_name = f"{name} {sensor_type}"
+        self._attr_unique_id = f"{DOMAIN}_{user_id}_{sensor_type.lower().replace(' ', '_')}"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device information."""
+        return {
+            "identifiers": {(DOMAIN, self._user_id)},
+            "name": f"Parkrun {self._user_id}"
+        }
+
+
+class ParkrunTotalRunsSensor(BaseParkrunSensor):
+    """Sensor for total parkruns completed."""
+
+    def __init__(self, coordinator: ParkrunDataUpdateCoordinator, user_id: str, name: str) -> None:
+        """Initialize the total runs sensor."""
+        super().__init__(coordinator, user_id, name, "Total Runs")
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_native_unit_of_measurement = "runs"
+        self._attr_icon = "mdi:run"
 
     @property
     def native_value(self) -> int:
-        """Return the state of the sensor."""
+        """Return the total runs."""
         return self.coordinator.data.get(ATTR_TOTAL_RUNS, 0)
+
+
+class ParkrunLastRunTimeSensor(BaseParkrunSensor):
+    """Sensor for last run time."""
+
+    def __init__(self, coordinator: ParkrunDataUpdateCoordinator, user_id: str, name: str) -> None:
+        """Initialize the last run time sensor."""
+        super().__init__(coordinator, user_id, name, "Last Run Time")
+        self._attr_icon = "mdi:timer"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the last run time."""
+        return self.coordinator.data.get(ATTR_LAST_RUN_TIME)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the state attributes."""
+        """Return additional attributes."""
         return {
-            key: value
-            for key, value in self.coordinator.data.items()
-            if key != ATTR_TOTAL_RUNS
+            "last_run_date": self.coordinator.data.get(ATTR_LAST_RUN_DATE),
+            "last_run_event": self.coordinator.data.get(ATTR_LAST_RUN_EVENT),
         }
 
+
+class ParkrunPersonalBestSensor(BaseParkrunSensor):
+    """Sensor for personal best time."""
+
+    def __init__(self, coordinator: ParkrunDataUpdateCoordinator, user_id: str, name: str) -> None:
+        """Initialize the personal best sensor."""
+        super().__init__(coordinator, user_id, name, "Personal Best")
+        self._attr_icon = "mdi:trophy"
+
     @property
-    def icon(self) -> str:
-        """Return the icon to use in the frontend."""
-        return "mdi:run"
+    def native_value(self) -> str | None:
+        """Return the personal best time."""
+        return self.coordinator.data.get(ATTR_PERSONAL_BEST)
+
+
+class ParkrunLastRunPositionSensor(BaseParkrunSensor):
+    """Sensor for last run position."""
+
+    def __init__(self, coordinator: ParkrunDataUpdateCoordinator, user_id: str, name: str) -> None:
+        """Initialize the last run position sensor."""
+        super().__init__(coordinator, user_id, name, "Last Run Position")
+        self._attr_icon = "mdi:podium"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the last run position."""
+        position = self.coordinator.data.get(ATTR_LAST_RUN_POSITION)
+        if position and isinstance(position, str) and position.isdigit():
+            return int(position)
+        if isinstance(position, int):
+            return position
+        return None
+
+
+class ParkrunAverageTimeSensor(BaseParkrunSensor):
+    """Sensor for average time."""
+
+    def __init__(self, coordinator: ParkrunDataUpdateCoordinator, user_id: str, name: str) -> None:
+        """Initialize the average time sensor."""
+        super().__init__(coordinator, user_id, name, "Average Time")
+        self._attr_icon = "mdi:chart-line"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the average time."""
+        return self.coordinator.data.get(ATTR_AVERAGE_TIME)
+
+
+class ParkrunLastRunEventSensor(BaseParkrunSensor):
+    """Sensor for last run event."""
+
+    def __init__(self, coordinator: ParkrunDataUpdateCoordinator, user_id: str, name: str) -> None:
+        """Initialize the last run event sensor."""
+        super().__init__(coordinator, user_id, name, "Last Run Event")
+        self._attr_icon = "mdi:map-marker"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the last run event name."""
+        return self.coordinator.data.get(ATTR_LAST_RUN_EVENT)
+
+
+class ParkrunLastRunDateSensor(BaseParkrunSensor):
+    """Sensor for last run date."""
+
+    def __init__(self, coordinator: ParkrunDataUpdateCoordinator, user_id: str, name: str) -> None:
+        """Initialize the last run date sensor."""
+        super().__init__(coordinator, user_id, name, "Last Run Date")
+        self._attr_device_class = SensorDeviceClass.TIMESTAMP
+        self._attr_icon = "mdi:calendar"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the last run date."""
+        return self.coordinator.data.get(ATTR_LAST_RUN_DATE)
