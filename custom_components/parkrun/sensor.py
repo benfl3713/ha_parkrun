@@ -109,48 +109,85 @@ class ParkrunDataUpdateCoordinator(DataUpdateCoordinator):
         }
         
         try:
-            # Look for total runs count
-            # This would typically be in a summary section or header
-            summary_section = soup.find('div', class_='Results-header') or soup.find('h2')
-            if summary_section:
-                text = summary_section.get_text()
-                # Extract number of runs from text like "123 total runs"
-                runs_match = re.search(r'(\d+)', text)
+            # Extract total runs from h3 tag like "6 parkruns total"
+            h3_total = soup.find('h3', string=lambda text: text and 'parkruns total' in text)
+            if h3_total:
+                text = h3_total.get_text()
+                runs_match = re.search(r'(\d+)\s+parkruns total', text)
                 if runs_match:
                     data[ATTR_TOTAL_RUNS] = int(runs_match.group(1))
             
-            # Look for results table
-            results_table = soup.find('table', class_='Results-table') or soup.find('table')
-            if results_table:
-                rows = results_table.find_all('tr')[1:]  # Skip header row
-                recent_runs = []
-                
-                for i, row in enumerate(rows[:10]):  # Get last 10 runs
-                    cells = row.find_all('td')
-                    if len(cells) >= 4:
-                        try:
-                            run_data = {
-                                'date': cells[0].get_text().strip() if len(cells) > 0 else '',
-                                'event': cells[1].get_text().strip() if len(cells) > 1 else '',
-                                'time': cells[2].get_text().strip() if len(cells) > 2 else '',
-                                'position': cells[3].get_text().strip() if len(cells) > 3 else '',
-                            }
-                            recent_runs.append(run_data)
-                            
-                            # Set last run data (first row is most recent)
-                            if i == 0:
-                                data[ATTR_LAST_RUN_DATE] = run_data['date']
-                                data[ATTR_LAST_RUN_TIME] = run_data['time']
-                                data[ATTR_LAST_RUN_POSITION] = run_data['position']
-                                data[ATTR_LAST_RUN_EVENT] = run_data['event']
-                        except (IndexError, ValueError):
-                            continue
-                
-                data[ATTR_RECENT_RUNS] = recent_runs
-                
-                # Calculate personal best and average (from available times)
+            # Find all tables
+            tables = soup.find_all('table')
+            
+            if len(tables) >= 1:
+                # First table: Most Recent parkruns
+                # Headers: Event, Run Date, Gender Pos, Overall Position, Time, Age Grade
+                recent_table = tables[0]
+                tbody = recent_table.find('tbody')
+                if tbody:
+                    rows = tbody.find_all('tr')
+                    recent_runs = []
+                    
+                    for i, row in enumerate(rows[:10]):  # Get last 10 runs
+                        cells = row.find_all('td')
+                        if len(cells) >= 6:  # Event, Run Date, Gender Pos, Overall Position, Time, Age Grade
+                            try:
+                                # Extract event name from link
+                                event_cell = cells[0]
+                                event_link = event_cell.find('a')
+                                event = event_link.get_text().strip() if event_link else event_cell.get_text().strip()
+                                
+                                # Extract date from link  
+                                date_cell = cells[1]
+                                date_link = date_cell.find('a')
+                                date = date_link.get_text().strip() if date_link else date_cell.get_text().strip()
+                                
+                                run_data = {
+                                    'event': event,
+                                    'date': date,
+                                    'gender_position': cells[2].get_text().strip(),
+                                    'overall_position': cells[3].get_text().strip(), 
+                                    'time': cells[4].get_text().strip(),
+                                    'age_grade': cells[5].get_text().strip(),
+                                }
+                                recent_runs.append(run_data)
+                                
+                                # Set last run data (first row is most recent)
+                                if i == 0:
+                                    data[ATTR_LAST_RUN_DATE] = run_data['date']
+                                    data[ATTR_LAST_RUN_TIME] = run_data['time']
+                                    data[ATTR_LAST_RUN_POSITION] = run_data['overall_position']
+                                    data[ATTR_LAST_RUN_EVENT] = run_data['event']
+                            except (IndexError, ValueError):
+                                continue
+                    
+                    data[ATTR_RECENT_RUNS] = recent_runs
+            
+            if len(tables) >= 2:
+                # Second table: Event Summaries - contains personal best
+                # Headers: Event, parkruns, Best Gender Position, Best Position Overall, Best Time
+                summary_table = tables[1]
+                tbody = summary_table.find('tbody')
+                if tbody:
+                    # Look for the best time in the summary table
+                    rows = tbody.find_all('tr')
+                    if rows:
+                        first_row = rows[0]
+                        cells = first_row.find_all('td')
+                        if len(cells) >= 5:  # Event, parkruns, Best Gender Position, Best Position Overall, Best Time
+                            best_time_cell = cells[4]
+                            # Look for span with class "pretty-time" or just get text
+                            time_span = best_time_cell.find('span', class_='pretty-time')
+                            if time_span:
+                                data[ATTR_PERSONAL_BEST] = time_span.get_text().strip()
+                            else:
+                                data[ATTR_PERSONAL_BEST] = best_time_cell.get_text().strip()
+            
+            # Calculate average time from recent runs
+            if data[ATTR_RECENT_RUNS]:
                 valid_times = []
-                for run in recent_runs:
+                for run in data[ATTR_RECENT_RUNS]:
                     time_str = run.get('time', '')
                     if ':' in time_str:
                         try:
@@ -164,7 +201,6 @@ class ParkrunDataUpdateCoordinator(DataUpdateCoordinator):
                             continue
                 
                 if valid_times:
-                    data[ATTR_PERSONAL_BEST] = self._seconds_to_time_str(min(valid_times))
                     data[ATTR_AVERAGE_TIME] = self._seconds_to_time_str(sum(valid_times) // len(valid_times))
         
         except Exception as err:
