@@ -11,7 +11,7 @@ A Home Assistant custom component to track your Parkrun statistics by scraping y
 - Track total number of Parkrun events completed
 - Monitor your most recent run details (date, time, position, event)
 - View your personal best time and average time
-- Access recent run history
+- Separate sensors for each metric allow for better historical tracking and charting
 - Automatic updates every hour
 
 ## Installation
@@ -45,18 +45,17 @@ A Home Assistant custom component to track your Parkrun statistics by scraping y
 
 ## Usage
 
-Once configured, the integration creates a sensor entity with the following attributes:
+Once configured, the integration creates multiple sensor entities for better historical tracking:
 
-- **State**: Total number of runs completed
-- **Attributes**:
-  - `user_id`: Your Parkrun user ID
-  - `last_run_date`: Date of your most recent run
-  - `last_run_time`: Your time for the most recent run
-  - `last_run_position`: Your position in the most recent run
-  - `last_run_event`: The Parkrun event name for your most recent run
-  - `personal_best`: Your best recorded time
-  - `average_time`: Your average time across recent runs
-  - `recent_runs`: List of your recent run details
+- `sensor.parkrun_total_runs` - Total number of runs completed
+- `sensor.parkrun_last_run_time` - Your time for the most recent run
+- `sensor.parkrun_last_run_date` - Date of your most recent run
+- `sensor.parkrun_last_run_position` - Your position in the most recent run
+- `sensor.parkrun_last_run_event` - The Parkrun event name for your most recent run
+- `sensor.parkrun_personal_best` - Your best recorded time
+- `sensor.parkrun_average_time` - Your average time across recent runs
+
+**Note**: If you customize the sensor name during configuration (e.g., "John's Parkrun"), the entity IDs will be prefixed accordingly (e.g., `sensor.johns_parkrun_total_runs`).
 
 ## Example Automation
 
@@ -65,16 +64,15 @@ automation:
   - alias: "New Parkrun PB Notification"
     trigger:
       - platform: state
-        entity_id: sensor.parkrun
-        attribute: personal_best
+        entity_id: sensor.parkrun_personal_best
     condition:
       - condition: template
-        value_template: "{{ trigger.from_state.attributes.personal_best != trigger.to_state.attributes.personal_best }}"
+        value_template: "{{ trigger.from_state.state != trigger.to_state.state }}"
     action:
       - service: notify.mobile_app_your_phone
         data:
           title: "New Parkrun PB!"
-          message: "Congratulations! New personal best: {{ state_attr('sensor.parkrun', 'personal_best') }}"
+          message: "Congratulations! New personal best: {{ states('sensor.parkrun_personal_best') }}"
 ```
 
 ## Lovelace Card Example
@@ -82,20 +80,20 @@ automation:
 ```yaml
 type: entities
 entities:
-  - entity: sensor.parkrun
+  - entity: sensor.parkrun_total_runs
     name: Total Runs
-  - type: attribute
-    entity: sensor.parkrun
-    attribute: last_run_date
+  - entity: sensor.parkrun_last_run_date
     name: Last Run Date
-  - type: attribute
-    entity: sensor.parkrun
-    attribute: last_run_time
+  - entity: sensor.parkrun_last_run_time
     name: Last Run Time
-  - type: attribute
-    entity: sensor.parkrun
-    attribute: personal_best
+  - entity: sensor.parkrun_last_run_position
+    name: Last Run Position
+  - entity: sensor.parkrun_personal_best
     name: Personal Best
+  - entity: sensor.parkrun_average_time
+    name: Average Time
+  - entity: sensor.parkrun_last_run_event
+    name: Last Run Event
 title: My Parkrun Stats
 ```
 
